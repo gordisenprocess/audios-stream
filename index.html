@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Enviar Audio al Stream</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    body { font-family: sans-serif; background: #121212; color: white; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+    .card { background: #1e1e1e; padding: 30px; border-radius: 15px; text-align: center; width: 300px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
+    input { width: 90%; padding: 10px; margin-bottom: 15px; border-radius: 8px; border: none; background: #2c2c2c; color: white; }
+    button { width: 100%; padding: 15px; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; transition: 0.2s; }
+    #btnGrabar { background: #9146FF; color: white; }
+    #btnGrabar.grabando { background: #ff3b3b; animation: pulse 1s infinite; }
+    #estado { margin-top: 15px; font-size: 14px; color: #aaa; }
+    @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.6; } 100% { opacity: 1; } }
+  </style>
+</head>
+<body>
+
+<div class="card">
+  <h2>🎙️ Manda tu audio</h2>
+  <input type="text" id="usuario" placeholder="Tu nombre o nick" maxlength="20">
+  <button id="btnGrabar">Mantener o Clic para Grabar</button>
+  <p id="estado">Máximo 10 segundos</p>
+</div>
+
+<script>
+  // --- PEGA TUS DATOS DE SUPABASE AQUÍ ---
+  const SUPABASE_URL = 'imgykwbppdxynbaznhlg';
+  const SUPABASE_KEY = 'sb_publishable_n9sInXCIbT5clU4pNKfHtg_EvF29TCb';
+  // ---------------------------------------
+
+  const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  const btnGrabar = document.getElementById('btnGrabar');
+  const estado = document.getElementById('estado');
+  const inputUsuario = document.getElementById('usuario');
+
+  let mediaRecorder;
+  let audioChunks = [];
+  let grabando = false;
+  let timeoutGrabacion;
+
+  btnGrabar.addEventListener('click', async () => {
+    if (!grabando) {
+      iniciarGrabacion();
+    } else {
+      detenerGrabacion();
+    }
+  });
+
+  async function iniciarGrabacion() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorder = new MediaRecorder(stream);
+      audioChunks = [];
+
+      mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+      mediaRecorder.onstop = enviarAudio;
+
+      mediaRecorder.start();
+      grabando = true;
+      btnGrabar.textContent = '⏹️ Detener y Enviar';
+      btnGrabar.classList.add('grabando');
+      estado.textContent = 'Grabando... (máx 10s)';
+
+      // Detener automáticamente a los 10 segundos
+      timeoutGrabacion = setTimeout(() => {
+        if (grabando) detenerGrabacion();
+      }, 10000);
+
+    } catch (err) {
+      estado.textContent = 'Error: Permite el acceso al micrófono.';
+    }
+  }
+
+  function detenerGrabacion() {
+    clearTimeout(timeoutGrabacion);
+    mediaRecorder.stop();
+    mediaRecorder.stream.getTracks().forEach(track => track.stop());
+    grabando = false;
+    btnGrabar.textContent = '⏳ Enviando...';
+    btnGrabar.classList.remove('grabando');
+    btnGrabar.disabled = true;
+  }
+
+  async function enviarAudio() {
+    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+    const nombreArchivo = `audio_${Date.now()}.webm`;
+    const nombreUsuario = inputUsuario.value.trim() || 'Anónimo';
+
+    // 1. Subir el archivo al Storage de Supabase
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from('audios')
+      .upload(nombreArchivo, audioBlob);
+
+    if (uploadError) {
+      estado.textContent = 'Error al subir el audio.';
+      resetearBoton();
+      return;
+    }
+
+    // 2. Obtener la URL pública del audio
+    const { data: urlData } = supabase.storage
+      .from('audios')
+      .getPublicUrl(nombreArchivo);
+
+    // 3. Guardar en la tabla para avisarle a OBS
+    const { error: dbError } = await supabase
+      .from('mensajes')
+      .insert([{ usuario: nombreUsuario, audio_url: urlData.publicUrl }]);
+
+    if (dbError) {
+      estado.textContent = 'Error al enviar alerta.';
+    } else {
+      estado.textContent = '✅ ¡Audio enviado al stream!';
+    }
+    resetearBoton();
+  }
+
+  function resetearBoton() {
+    btnGrabar.disabled = false;
+    btnGrabar.textContent = '🎙️ Grabar otro audio';
+  }
+</script>
+</body>
+</html>

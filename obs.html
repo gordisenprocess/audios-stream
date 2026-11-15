@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Widget OBS Audios</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    body { margin: 0; background: transparent; overflow: hidden; font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; }
+    #alerta { display: none; background: rgba(20, 20, 20, 0.9); color: white; padding: 20px 35px; border-radius: 50px; border: 3px solid #9146FF; font-size: 24px; font-weight: bold; box-shadow: 0 0 20px rgba(145, 70, 255, 0.6); animation: popIn 0.3s ease-out; }
+    @keyframes popIn { 0% { transform: scale(0.5); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+  </style>
+</head>
+<body>
+
+<div id="alerta">🔊 <span id="nombreUsuario">Alguien</span> envió un audio...</div>
+
+<script>
+  // --- PEGA TUS MISMOS DATOS DE SUPABASE AQUÍ ---
+  const SUPABASE_URL = 'imgykwbppdxynbaznhlg';
+  const SUPABASE_KEY = 'sb_publishable_n9sInXCIbT5clU4pNKfHtg_EvF29TCb';
+  // ----------------------------------------------
+
+  const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  const alertaDiv = document.getElementById('alerta');
+  const nombreSpan = document.getElementById('nombreUsuario');
+
+  let colaAudios = [];
+  let reproduciendo = false;
+
+  // Escuchar nuevos audios en tiempo real
+  supabase
+    .channel('canal-audios')
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'mensajes' }, payload => {
+      colaAudios.push(payload.new);
+      procesarCola();
+    })
+    .subscribe();
+
+  function procesarCola() {
+    if (reproduciendo || colaAudios.length === 0) return;
+
+    reproduciendo = true;
+    const mensajeActual = colaAudios.shift();
+
+    nombreSpan.textContent = mensajeActual.usuario;
+    alertaDiv.style.display = 'block';
+
+    const audio = new Audio(mensajeActual.audio_url);
+    audio.play().catch(e => console.error("Error reproduciendo:", e));
+
+    audio.onended = () => {
+      alertaDiv.style.display = 'none';
+      reproduciendo = false;
+      procesarCola(); // Siguiente audio si hay en fila
+    };
+  }
+</script>
+</body>
+</html>
