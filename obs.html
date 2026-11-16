@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>Widget OBS Diagnóstico</title>
+  <title>Widget OBS Universal</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     body {
@@ -12,12 +12,11 @@
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     }
 
-    /* Caja de estado visible en OBS para saber qué ocurre */
     #estadoObs {
       position: absolute;
       top: 10px;
       left: 10px;
-      background: rgba(0, 0, 0, 0.8);
+      background: rgba(0, 0, 0, 0.85);
       color: #00ffcc;
       padding: 8px 12px;
       border-radius: 6px;
@@ -61,26 +60,16 @@
       font-size: 16px;
       font-weight: bold;
       color: #00f0ff;
-      margin-bottom: 8px;
-    }
-
-    audio {
-      width: 100%;
-      margin-top: 5px;
     }
   </style>
 </head>
 <body>
 
-  <!-- Texto de estado para ver el error o progreso en OBS -->
   <div id="estadoObs">Estado: Esperando clic de activación</div>
-
   <button id="btnActivar">🔊 CLIC AQUÍ PARA ACTIVAR AUDIO</button>
 
   <div id="reproductor">
-    <div id="nombreUsuario" class="info">Reproduciendo audio...</div>
-    <!-- Usamos un elemento audio nativo visible para garantizar que OBS lo renderice -->
-    <audio id="elementoAudio" controls></audio>
+    <div id="nombreUsuario" class="info">🎙️ Reproduciendo nota de voz...</div>
   </div>
 
 <script>
@@ -92,19 +81,20 @@
   const btnActivar = document.getElementById('btnActivar');
   const reproductorDiv = document.getElementById('reproductor');
   const nombreSpan = document.getElementById('nombreUsuario');
-  const elementoAudio = document.getElementById('elementoAudio');
 
   let colaAudios = [];
   let idsProcesados = new Set();
   let reproduciendo = false;
   let audioHabilitado = false;
+  let audioCtx = null;
 
-  // ⚠️ TRUCO CLAVE EN OBS:
-  // Para hacer clic en este botón dentro de OBS, debes hacer CLIC DERECHO en la Fuente de Navegador y seleccionar "INTERACTUAR".
+  // Inicializar contexto de audio con interacción en OBS ("Interactuar")
   btnActivar.addEventListener('click', () => {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    audioCtx.resume();
     audioHabilitado = true;
     btnActivar.style.display = 'none';
-    estadoObs.textContent = 'Estado: ¡Audio activado! Escuchando mensajes...';
+    estadoObs.textContent = 'Estado: ¡Audio activado! Escuchando...';
     revisarMensajesNuevos();
   });
 
@@ -114,11 +104,7 @@
       estadoObs.textContent = 'Estado: ¡Nuevo audio recibido!';
       agregarACola(payload.new);
     })
-    .subscribe((status) => {
-      if (status === 'SUBSCRIBED') {
-        estadoObs.textContent = 'Estado: Conectado a Supabase (Esperando...)';
-      }
-    });
+    .subscribe();
 
   // Respaldo cada 3 segundos
   setInterval(revisarMensajesNuevos, 3000);
@@ -130,12 +116,7 @@
       .select('*')
       .order('id', { ascending: true });
 
-    if (error) {
-      estadoObs.textContent = 'Error DB: ' + error.message;
-      return;
-    }
-
-    if (data && data.length > 0) {
+    if (!error && data) {
       data.forEach(msg => agregarACola(msg));
     }
   }
@@ -155,23 +136,37 @@
 
     nombreSpan.textContent = `🎙️ ${mensajeActual.usuario || 'ANÓNIMO'}`;
     reproductorDiv.style.display = 'block';
-    estadoObs.textContent = `Estado: Reproduciendo de ${mensajeActual.usuario}`;
-
-    elementoAudio.src = mensajeActual.audio_url;
-    
-    elementoAudio.onended = () => {
-      setTimeout(() => limpiarYContinuar(mensajeActual), 500);
-    };
-
-    elementoAudio.onerror = (e) => {
-      estadoObs.textContent = 'Error reproduciendo audio HTML5';
-      limpiarYContinuar(mensajeActual);
-    };
+    estadoObs.textContent = `Estado: Descargando audio de ${mensajeActual.usuario}...`;
 
     try {
-      await elementoAudio.play();
+      // 1. Descargar el archivo binario directamente desde Supabase Storage
+      const response = await fetch(mensajeActual.audio_url);
+      if (!response.ok) throw new Error("No se pudo descargar el archivo de audio");
+      
+      const arrayBuffer = await response.arrayBuffer();
+
+      estadoObs.textContent = `Estado: Decodificando audio...`;
+
+      // 2. Decodificar el buffer de audio de forma universal (soporta webm, m4a, ogg, wav)
+      const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+
+      estadoObs.textContent = `Estado: Reproduciendo...`;
+
+      // 3. Reproducir usando Web Audio API
+      const source = audioCtx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(audioCtx.destination);
+      
+      source.onended = () => {
+        limpiarYContinuar(mensajeActual);
+      };
+
+      source.start(0);
+
     } catch (err) {
-      estadoObs.textContent = 'Error play(): ' + err.message;
+      console.error("Error procesando audio:", err);
+      estadoObs.textContent = 'Error: ' + err.message;
+      // Si falla la decodificación, limpiamos igual para que no se quede bloqueado
       limpiarYContinuar(mensajeActual);
     }
   }
