@@ -2,57 +2,213 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>Widget OBS Audios</title>
+  <title>Widget OBS Audios - Reproductor</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
-    body { margin: 0; background: transparent; overflow: hidden; font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; }
-    #alerta { display: none; background: rgba(20, 20, 20, 0.9); color: white; padding: 20px 35px; border-radius: 50px; border: 3px solid #9146FF; font-size: 24px; font-weight: bold; box-shadow: 0 0 20px rgba(145, 70, 255, 0.6); animation: popIn 0.3s ease-out; }
-    @keyframes popIn { 0% { transform: scale(0.5); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+    body {
+      margin: 0;
+      background: transparent;
+      overflow: hidden;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+    }
+
+    /* Contenedor del reproductor (oculto por defecto) */
+    #reproductor {
+      display: none;
+      background: rgba(18, 18, 22, 0.95);
+      color: #ffffff;
+      padding: 18px 25px;
+      border-radius: 16px;
+      border: 2px solid #9146FF;
+      width: 340px;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.7), 0 0 15px rgba(145, 70, 255, 0.4);
+      animation: aparecer 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+
+    .cabecera {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .icono-onda {
+      background: #9146FF;
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-size: 18px;
+      animation: latido 1s infinite alternate;
+    }
+
+    .info-usuario {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .etiqueta {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #b3b3b3;
+    }
+
+    #nombreUsuario {
+      font-size: 18px;
+      font-weight: bold;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: #ffffff;
+    }
+
+    /* Barra de progreso del audio */
+    .barra-fondo {
+      width: 100%;
+      height: 6px;
+      background: #2e2e36;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    #barraProgreso {
+      width: 0%;
+      height: 100%;
+      background: linear-gradient(90deg, #9146FF, #00d2ff);
+      transition: width 0.1s linear;
+    }
+
+    @keyframes aparecer {
+      0% { transform: translateY(20px) scale(0.9); opacity: 0; }
+      100% { transform: translateY(0) scale(1); opacity: 1; }
+    }
+
+    @keyframes latido {
+      0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(145, 70, 255, 0.7); }
+      100% { transform: scale(1.08); box-shadow: 0 0 0 8px rgba(145, 70, 255, 0); }
+    }
   </style>
 </head>
 <body>
 
-<div id="alerta">🔊 <span id="nombreUsuario">Alguien</span> envió un audio...</div>
+<div id="reproductor">
+  <div class="cabecera">
+    <div class="icono-onda">🎙️</div>
+    <div class="info-usuario">
+      <span class="etiqueta">Nota de voz de</span>
+      <span id="nombreUsuario">Usuario</span>
+    </div>
+  </div>
+  <div class="barra-fondo">
+    <div id="barraProgreso"></div>
+  </div>
+</div>
 
 <script>
-  // --- PEGA TUS MISMOS DATOS DE SUPABASE AQUÍ ---
+  // --- TUS CREDENCIALES DE SUPABASE ---
   const SUPABASE_URL = 'https://imgykwbppdxynbaznhlg.supabase.co';
   const SUPABASE_KEY = 'sb_publishable_n9sInXCIbT5clU4pNKfHtg_EvF29TCb';
-  // ----------------------------------------------
+  // ------------------------------------
 
-  const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-  const alertaDiv = document.getElementById('alerta');
+  const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  const reproductorDiv = document.getElementById('reproductor');
   const nombreSpan = document.getElementById('nombreUsuario');
+  const barraProgreso = document.getElementById('barraProgreso');
 
   let colaAudios = [];
   let reproduciendo = false;
 
-  // Escuchar nuevos audios en tiempo real
-  supabase
-    .channel('canal-audios')
+  // Función que genera un sonido de notificación suave a volumen bajo (15%)
+  function tocarNotificacion() {
+    return new Promise((resolve) => {
+      try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        const ctx = new AudioCtx();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        osc.type = 'sine';
+        // Dos notas suaves estilo "ding-dong"
+        osc.frequency.setValueAtTime(587.33, ctx.currentTime); // Re5
+        osc.frequency.setValueAtTime(880.00, ctx.currentTime + 0.12); // La5
+
+        // Volumen bajo (0.15 = 15% de volumen)
+        gain.gain.setValueAtTime(0.15, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc.start();
+        osc.stop(ctx.currentTime + 0.4);
+
+        // Esperar medio segundo a que termine la notificación antes de hablar
+        setTimeout(resolve, 450);
+      } catch (e) {
+        // Si el navegador bloquea el sintetizador, continuar directo al audio
+        resolve();
+      }
+    });
+  }
+
+  // Escuchar nuevos mensajes en Supabase
+  db.channel('canal-audios')
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'mensajes' }, payload => {
       colaAudios.push(payload.new);
       procesarCola();
     })
     .subscribe();
 
-  function procesarCola() {
+  async function procesarCola() {
     if (reproduciendo || colaAudios.length === 0) return;
 
     reproduciendo = true;
     const mensajeActual = colaAudios.shift();
 
-    nombreSpan.textContent = mensajeActual.usuario;
-    alertaDiv.style.display = 'block';
+    // Preparar datos visuales
+    nombreSpan.textContent = mensajeActual.usuario || 'Anónimo';
+    barraProgreso.style.width = '0%';
+    reproductorDiv.style.display = 'block';
 
+    // 1. Tocar la notificación suave primero
+    await tocarNotificacion();
+
+    // 2. Reproducir el audio del espectador
     const audio = new Audio(mensajeActual.audio_url);
-    audio.play().catch(e => console.error("Error reproduciendo:", e));
+
+    // Actualizar la barra de progreso mientras suena
+    audio.ontimeupdate = () => {
+      if (audio.duration) {
+        const porcentaje = (audio.currentTime / audio.duration) * 100;
+        barraProgreso.style.width = porcentaje + '%';
+      }
+    };
+
+    audio.play().catch(e => {
+      console.error("Error reproduciendo audio:", e);
+      finalizarReproduccion();
+    });
 
     audio.onended = () => {
-      alertaDiv.style.display = 'none';
-      reproduciendo = false;
-      procesarCola(); // Siguiente audio si hay en fila
+      barraProgreso.style.width = '100%';
+      setTimeout(finalizarReproduccion, 300); // Pequeña pausa al terminar antes de ocultarse
     };
+  }
+
+  function finalizarReproduccion() {
+    reproductorDiv.style.display = 'none';
+    barraProgreso.style.width = '0%';
+    reproduciendo = false;
+    procesarCola(); // Pasar al siguiente audio si hay en cola
   }
 </script>
 </body>
