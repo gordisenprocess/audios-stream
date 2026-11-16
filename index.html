@@ -31,7 +31,6 @@
   const SUPABASE_KEY = 'sb_publishable_n9sInXCIbT5clU4pNKfHtg_EvF29TCb';
   // -----------------------------------
 
-  // Corrección: Usar 'supabase.createClient' directamente
   const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
   
   const btnGrabar = document.getElementById('btnGrabar');
@@ -60,7 +59,16 @@
       }
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaRecorder = new MediaRecorder(stream);
+      
+      // Buscar un tipo de soporte compatible y universal para evitar errores de códec
+      let opciones = { mimeType: 'audio/webm' };
+      if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+        opciones = { mimeType: 'audio/webm;codecs=opus' };
+      } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+        opciones = { mimeType: 'audio/mp4' };
+      }
+
+      mediaRecorder = new MediaRecorder(stream, opciones);
       audioChunks = [];
 
       mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
@@ -98,8 +106,13 @@
 
   async function enviarAudio() {
     try {
-      const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-      const nombreArchivo = `audio_${Date.now()}.webm`;
+      // Usar el tipo MIME con el que grabó el navegador
+      const mimeUsado = mediaRecorder.mimeType || 'audio/webm';
+      const audioBlob = new Blob(audioChunks, { type: mimeUsado });
+      
+      // Extension automatica según el tipo
+      const extension = mimeUsado.includes('mp4') ? 'm4a' : 'webm';
+      const nombreArchivo = `audio_${Date.now()}.${extension}`;
       const nombreUsuario = inputUsuario.value.trim() || 'Anónimo';
 
       // 1. Subir a Storage
