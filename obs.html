@@ -2,20 +2,29 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>Widget OBS Retro</title>
+  <title>Widget OBS Diagnóstico</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=VT323&family=Space+Grotesk:wght@700&display=swap');
-
     body {
       margin: 0;
       background: transparent;
       overflow: hidden;
-      font-family: 'Space Grotesk', sans-serif;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      height: 100vh;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+
+    /* Caja de estado visible en OBS para saber qué ocurre */
+    #estadoObs {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: rgba(0, 0, 0, 0.8);
+      color: #00ffcc;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: bold;
+      border: 1px solid #00ffcc;
+      z-index: 1000;
     }
 
     #btnActivar {
@@ -36,94 +45,42 @@
 
     #reproductor {
       display: none;
+      position: absolute;
+      bottom: 60px;
+      left: 20px;
       background: #191825;
       color: #ffffff;
-      padding: 20px 25px;
-      border-radius: 16px;
+      padding: 15px 20px;
+      border-radius: 12px;
       border: 3px solid #7f5af0;
-      width: 350px;
-      box-shadow: 6px 6px 0px #ff007f;
-      animation: aparecer 0.3s ease-out;
+      width: 320px;
+      box-shadow: 4px 4px 0px #ff007f;
     }
 
-    .cabecera {
-      display: flex;
-      align-items: center;
-      gap: 15px;
-      margin-bottom: 14px;
-    }
-
-    .icono-onda {
-      background: #ff007f;
-      width: 42px;
-      height: 42px;
-      border-radius: 10px;
-      border: 2px solid #fff;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      font-size: 20px;
-    }
-
-    .info-usuario {
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-    }
-
-    .etiqueta {
-      font-family: 'VT323', monospace;
-      font-size: 18px;
-      letter-spacing: 1px;
-      color: #00f0ff;
-    }
-
-    #nombreUsuario {
-      font-size: 20px;
+    .info {
+      font-size: 16px;
       font-weight: bold;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      color: #ffffff;
+      color: #00f0ff;
+      margin-bottom: 8px;
     }
 
-    .barra-fondo {
+    audio {
       width: 100%;
-      height: 10px;
-      background: #0f0e17;
-      border: 2px solid #7f5af0;
-      border-radius: 6px;
-      overflow: hidden;
-    }
-
-    #barraProgreso {
-      width: 0%;
-      height: 100%;
-      background: linear-gradient(90deg, #ff007f, #00f0ff);
-      transition: width 0.1s linear;
-    }
-
-    @keyframes aparecer {
-      0% { transform: translateY(20px) scale(0.9); opacity: 0; }
-      100% { transform: translateY(0) scale(1); opacity: 1; }
+      margin-top: 5px;
     }
   </style>
 </head>
 <body>
 
+  <!-- Texto de estado para ver el error o progreso en OBS -->
+  <div id="estadoObs">Estado: Esperando clic de activación</div>
+
   <button id="btnActivar">🔊 CLIC AQUÍ PARA ACTIVAR AUDIO</button>
 
   <div id="reproductor">
-    <div class="cabecera">
-      <div class="icono-onda">🎙️</div>
-      <div class="info-usuario">
-        <span class="etiqueta">NOTA DE VOZ DE:</span>
-        <span id="nombreUsuario">Usuario</span>
-      </div>
-    </div>
-    <div class="barra-fondo">
-      <div id="barraProgreso"></div>
-    </div>
+    <div id="nombreUsuario" class="info">Reproduciendo audio...</div>
+    <!-- Usamos un elemento audio nativo visible para garantizar que OBS lo renderice -->
+    <audio id="elementoAudio" controls></audio>
   </div>
 
 <script>
@@ -131,33 +88,39 @@
   const SUPABASE_KEY = 'sb_publishable_n9sInXCIbT5clU4pNKfHtg_EvF29TCb';
   const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
+  const estadoObs = document.getElementById('estadoObs');
+  const btnActivar = document.getElementById('btnActivar');
   const reproductorDiv = document.getElementById('reproductor');
   const nombreSpan = document.getElementById('nombreUsuario');
-  const barraProgreso = document.getElementById('barraProgreso');
-  const btnActivar = document.getElementById('btnActivar');
+  const elementoAudio = document.getElementById('elementoAudio');
 
   let colaAudios = [];
   let idsProcesados = new Set();
   let reproduciendo = false;
   let audioHabilitado = false;
 
-  // Desbloquear motor de audio con interacción real
+  // ⚠️ TRUCO CLAVE EN OBS:
+  // Para hacer clic en este botón dentro de OBS, debes hacer CLIC DERECHO en la Fuente de Navegador y seleccionar "INTERACTUAR".
   btnActivar.addEventListener('click', () => {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    ctx.resume();
     audioHabilitado = true;
     btnActivar.style.display = 'none';
+    estadoObs.textContent = 'Estado: ¡Audio activado! Escuchando mensajes...';
     revisarMensajesNuevos();
   });
 
-  // Método 1: Escucha en tiempo real
-  db.channel('canal-audios')
+  // Escucha en tiempo real
+  db.channel('canal-audios-obs')
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'mensajes' }, payload => {
+      estadoObs.textContent = 'Estado: ¡Nuevo audio recibido!';
       agregarACola(payload.new);
     })
-    .subscribe();
+    .subscribe((status) => {
+      if (status === 'SUBSCRIBED') {
+        estadoObs.textContent = 'Estado: Conectado a Supabase (Esperando...)';
+      }
+    });
 
-  // Método 2: Revisión periódica cada 3 segundos (respaldo infalible)
+  // Respaldo cada 3 segundos
   setInterval(revisarMensajesNuevos, 3000);
 
   async function revisarMensajesNuevos() {
@@ -167,7 +130,12 @@
       .select('*')
       .order('id', { ascending: true });
 
-    if (!error && data) {
+    if (error) {
+      estadoObs.textContent = 'Error DB: ' + error.message;
+      return;
+    }
+
+    if (data && data.length > 0) {
       data.forEach(msg => agregarACola(msg));
     }
   }
@@ -185,55 +153,47 @@
     reproduciendo = true;
     const mensajeActual = colaAudios.shift();
 
-    nombreSpan.textContent = mensajeActual.usuario || 'ANÓNIMO';
-    barraProgreso.style.width = '0%';
+    nombreSpan.textContent = `🎙️ ${mensajeActual.usuario || 'ANÓNIMO'}`;
     reproductorDiv.style.display = 'block';
+    estadoObs.textContent = `Estado: Reproduciendo de ${mensajeActual.usuario}`;
 
-    const audio = new Audio(mensajeActual.audio_url);
-
-    audio.ontimeupdate = () => {
-      if (audio.duration && !isNaN(audio.duration)) {
-        const porcentaje = (audio.currentTime / audio.duration) * 100;
-        barraProgreso.style.width = porcentaje + '%';
-      }
+    elementoAudio.src = mensajeActual.audio_url;
+    
+    elementoAudio.onended = () => {
+      setTimeout(() => limpiarYContinuar(mensajeActual), 500);
     };
 
-    audio.onended = () => {
-      barraProgreso.style.width = '100%';
-      setTimeout(() => limpiarYContinuar(mensajeActual), 400);
-    };
-
-    audio.onerror = (e) => {
-      console.error("Error cargando el audio:", e);
+    elementoAudio.onerror = (e) => {
+      estadoObs.textContent = 'Error reproduciendo audio HTML5';
       limpiarYContinuar(mensajeActual);
     };
 
     try {
-      await audio.play();
+      await elementoAudio.play();
     } catch (err) {
-      console.error("Bloqueo de reproducción:", err);
+      estadoObs.textContent = 'Error play(): ' + err.message;
       limpiarYContinuar(mensajeActual);
     }
   }
 
   async function limpiarYContinuar(mensaje) {
     try {
-      // Borrar registro de la base de datos para que no vuelva a sonar
+      // Borrar de la base de datos
       await db.from('mensajes').delete().eq('id', mensaje.id);
 
-      // Intentar borrar el archivo físico si existe la política DELETE en Storage
+      // Borrar del Storage
       const urlParts = mensaje.audio_url.split('/');
       const nombreArchivo = urlParts[urlParts.length - 1];
       if (nombreArchivo) {
         await db.storage.from('audios').remove([nombreArchivo]);
       }
     } catch (err) {
-      console.error("Error en limpieza:", err);
+      console.error(err);
     }
 
     reproductorDiv.style.display = 'none';
-    barraProgreso.style.width = '0%';
     reproduciendo = false;
+    estadoObs.textContent = 'Estado: Escuchando mensajes...';
     procesarCola();
   }
 </script>
