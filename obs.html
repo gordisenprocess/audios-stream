@@ -2,40 +2,112 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>Widget OBS Diagnóstico</title>
+  <title>Widget OBS con Autolimpieza</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     body {
       margin: 0;
       background: transparent;
       overflow: hidden;
-      font-family: sans-serif;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
       display: flex;
       justify-content: center;
       align-items: center;
       height: 100vh;
     }
+
     #reproductor {
       display: none;
       background: rgba(18, 18, 22, 0.95);
       color: #ffffff;
-      padding: 20px;
-      border-radius: 12px;
-      border: 2px solid #ff3b3b;
-      width: 360px;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.8);
+      padding: 18px 25px;
+      border-radius: 16px;
+      border: 2px solid #9146FF;
+      width: 340px;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.7), 0 0 15px rgba(145, 70, 255, 0.4);
+      animation: aparecer 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
     }
-    h3 { margin: 0 0 10px 0; font-size: 16px; color: #ffcc00; }
-    p { margin: 5px 0; font-size: 14px; word-break: break-all; }
+
+    .cabecera {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .icono-onda {
+      background: #9146FF;
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-size: 18px;
+      animation: latido 1s infinite alternate;
+    }
+
+    .info-usuario {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .etiqueta {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #b3b3b3;
+    }
+
+    #nombreUsuario {
+      font-size: 18px;
+      font-weight: bold;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: #ffffff;
+    }
+
+    .barra-fondo {
+      width: 100%;
+      height: 6px;
+      background: #2e2e36;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    #barraProgreso {
+      width: 0%;
+      height: 100%;
+      background: linear-gradient(90deg, #9146FF, #00d2ff);
+      transition: width 0.1s linear;
+    }
+
+    @keyframes aparecer {
+      0% { transform: translateY(20px) scale(0.9); opacity: 0; }
+      100% { transform: translateY(0) scale(1); opacity: 1; }
+    }
+
+    @keyframes latido {
+      0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(145, 70, 255, 0.7); }
+      100% { transform: scale(1.08); box-shadow: 0 0 0 8px rgba(145, 70, 255, 0); }
+    }
   </style>
 </head>
 <body>
 
 <div id="reproductor">
-  <h3 id="titulo">🔴 Reproduciendo...</h3>
-  <p><b>De:</b> <span id="nombreUsuario">-</span></p>
-  <p id="estadoError" style="color: #ff6b6b; font-size: 12px;"></p>
-  <audio id="audioElemento" controls style="width: 100%; margin-top: 10px;"></audio>
+  <div class="cabecera">
+    <div class="icono-onda">🎙️</div>
+    <div class="info-usuario">
+      <span class="etiqueta">Nota de voz de</span>
+      <span id="nombreUsuario">Usuario</span>
+    </div>
+  </div>
+  <div class="barra-fondo">
+    <div id="barraProgreso"></div>
+  </div>
 </div>
 
 <script>
@@ -45,54 +117,82 @@
   // ------------------------------------
 
   const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
   const reproductorDiv = document.getElementById('reproductor');
   const nombreSpan = document.getElementById('nombreUsuario');
-  const audioElemento = document.getElementById('audioElemento');
-  const estadoError = document.getElementById('estadoError');
+  const barraProgreso = document.getElementById('barraProgreso');
 
   let colaAudios = [];
   let reproduciendo = false;
 
-  // Escuchar Supabase en tiempo real
+  // Escuchar nuevos mensajes en tiempo real
   db.channel('canal-audios')
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'mensajes' }, payload => {
-      console.log("Nuevo audio:", payload.new);
       colaAudios.push(payload.new);
       procesarCola();
     })
     .subscribe();
 
-  function procesarCola() {
+  async function procesarCola() {
     if (reproduciendo || colaAudios.length === 0) return;
 
     reproduciendo = true;
     const mensajeActual = colaAudios.shift();
 
     nombreSpan.textContent = mensajeActual.usuario || 'Anónimo';
-    estadoError.textContent = 'Cargando archivo...';
+    barraProgreso.style.width = '0%';
     reproductorDiv.style.display = 'block';
 
-    audioElemento.src = mensajeActual.audio_url;
-    
-    audioElemento.oncanplaythrough = () => {
-      estadoError.textContent = 'Reproduciendo audio...';
-      audioElemento.play().catch(err => {
-        estadoError.textContent = 'Error al reproducir: ' + err.message;
-      });
+    const audio = new Audio(mensajeActual.audio_url);
+
+    audio.ontimeupdate = () => {
+      if (audio.duration) {
+        const porcentaje = (audio.currentTime / audio.duration) * 100;
+        barraProgreso.style.width = porcentaje + '%';
+      }
     };
 
-    audioElemento.onerror = (e) => {
-      estadoError.textContent = 'Error cargando URL o códec no soportado.';
+    audio.onended = () => {
+      barraProgreso.style.width = '100%';
+      setTimeout(() => limpiarYContinuar(mensajeActual), 300);
     };
 
-    audioElemento.onended = () => {
-      setTimeout(() => {
-        reproductorDiv.style.display = 'none';
-        estadoError.textContent = '';
-        reproduciendo = false;
-        procesarCola();
-      }, 1000);
+    audio.onerror = () => {
+      limpiarYContinuar(mensajeActual);
     };
+
+    try {
+      await audio.play();
+    } catch (err) {
+      console.error("Error reproduciendo:", err);
+      limpiarYContinuar(mensajeActual);
+    }
+  }
+
+  // Función para borrar el archivo del Storage y de la tabla tras reproducirse
+  async function limpiarYContinuar(mensaje) {
+    try {
+      // 1. Extraer el nombre del archivo desde la URL pública de Supabase
+      const urlParts = mensaje.audio_url.split('/');
+      const nombreArchivo = urlParts[urlParts.length - 1];
+
+      if (nombreArchivo) {
+        // Borrar del Storage
+        await db.storage.from('audios').remove([nombreArchivo]);
+      }
+
+      // 2. Borrar el registro de la tabla 'mensajes' para que no se acumule
+      await db.from('mensajes').delete().eq('id', mensaje.id);
+
+    } catch (err) {
+      console.error("Error al limpiar el archivo:", err);
+    }
+
+    // Ocultar reproductor y pasar al siguiente
+    reproductorDiv.style.display = 'none';
+    barraProgreso.style.width = '0%';
+    reproduciendo = false;
+    procesarCola();
   }
 </script>
 </body>
