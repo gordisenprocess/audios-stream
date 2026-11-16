@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>Widget OBS Audios - Reproductor</title>
+  <title>Widget OBS Audios</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     body {
@@ -16,7 +16,6 @@
       height: 100vh;
     }
 
-    /* Contenedor del reproductor (oculto por defecto) */
     #reproductor {
       display: none;
       background: rgba(18, 18, 22, 0.95);
@@ -70,7 +69,6 @@
       color: #ffffff;
     }
 
-    /* Barra de progreso del audio */
     .barra-fondo {
       width: 100%;
       height: 6px;
@@ -127,42 +125,10 @@
   let colaAudios = [];
   let reproduciendo = false;
 
-  // Función que genera un sonido de notificación suave a volumen bajo (15%)
-  function tocarNotificacion() {
-    return new Promise((resolve) => {
-      try {
-        const AudioCtx = window.AudioContext || window.webkitAudioContext;
-        const ctx = new AudioCtx();
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-
-        osc.type = 'sine';
-        // Dos notas suaves estilo "ding-dong"
-        osc.frequency.setValueAtTime(587.33, ctx.currentTime); // Re5
-        osc.frequency.setValueAtTime(880.00, ctx.currentTime + 0.12); // La5
-
-        // Volumen bajo (0.15 = 15% de volumen)
-        gain.gain.setValueAtTime(0.15, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
-
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-
-        osc.start();
-        osc.stop(ctx.currentTime + 0.4);
-
-        // Esperar medio segundo a que termine la notificación antes de hablar
-        setTimeout(resolve, 450);
-      } catch (e) {
-        // Si el navegador bloquea el sintetizador, continuar directo al audio
-        resolve();
-      }
-    });
-  }
-
-  // Escuchar nuevos mensajes en Supabase
+  // Escuchar nuevos mensajes en tiempo real
   db.channel('canal-audios')
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'mensajes' }, payload => {
+      console.log("Nuevo audio detectado:", payload.new);
       colaAudios.push(payload.new);
       procesarCola();
     })
@@ -174,18 +140,14 @@
     reproduciendo = true;
     const mensajeActual = colaAudios.shift();
 
-    // Preparar datos visuales
     nombreSpan.textContent = mensajeActual.usuario || 'Anónimo';
     barraProgreso.style.width = '0%';
     reproductorDiv.style.display = 'block';
 
-    // 1. Tocar la notificación suave primero
-    await tocarNotificacion();
+    const audio = new Audio();
+    audio.src = mensajeActual.audio_url;
+    audio.preload = 'auto';
 
-    // 2. Reproducir el audio del espectador
-    const audio = new Audio(mensajeActual.audio_url);
-
-    // Actualizar la barra de progreso mientras suena
     audio.ontimeupdate = () => {
       if (audio.duration) {
         const porcentaje = (audio.currentTime / audio.duration) * 100;
@@ -193,22 +155,30 @@
       }
     };
 
-    audio.play().catch(e => {
-      console.error("Error reproduciendo audio:", e);
-      finalizarReproduccion();
-    });
-
     audio.onended = () => {
       barraProgreso.style.width = '100%';
-      setTimeout(finalizarReproduccion, 300); // Pequeña pausa al terminar antes de ocultarse
+      setTimeout(finalizarReproduccion, 300);
     };
+
+    audio.onerror = (e) => {
+      console.error("Error al cargar o reproducir el archivo de audio:", e);
+      finalizarReproduccion();
+    };
+
+    try {
+      await audio.play();
+    } catch (err) {
+      console.error("El navegador bloqueó la reproducción automática:", err);
+      // Si falla por políticas de autoplay, cerramos la tarjeta para no dejarla colgada
+      setTimeout(finalizarReproduccion, 2000);
+    }
   }
 
   function finalizarReproduccion() {
     reproductorDiv.style.display = 'none';
     barraProgreso.style.width = '0%';
     reproduciendo = false;
-    procesarCola(); // Pasar al siguiente audio si hay en cola
+    procesarCola();
   }
 </script>
 </body>
