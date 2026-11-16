@@ -29,24 +29,6 @@
       overflow: hidden;
     }
 
-    body::before {
-      content: "";
-      position: absolute;
-      width: 200%;
-      height: 200%;
-      background-image: linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
-                        linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
-      background-size: 30px 30px;
-      z-index: -1;
-      transform: perspective(500px) rotateX(60deg);
-      animation: gridMove 20s linear infinite;
-    }
-
-    @keyframes gridMove {
-      0% { transform: perspective(500px) rotateX(60deg) translateY(0); }
-      100% { transform: perspective(500px) rotateX(60deg) translateY(30px); }
-    }
-
     .card {
       background: var(--card-bg);
       padding: 35px;
@@ -79,10 +61,6 @@
       outline: none;
     }
 
-    input:focus {
-      border-color: var(--secondary);
-    }
-
     button {
       width: 100%;
       padding: 16px;
@@ -94,12 +72,6 @@
       background: var(--primary);
       color: white;
       box-shadow: 4px 4px 0px #fff;
-      transition: 0.1s ease;
-    }
-
-    button:active {
-      transform: translate(2px, 2px);
-      box-shadow: 2px 2px 0px #fff;
     }
 
     button.grabando {
@@ -144,22 +116,6 @@
   let grabando = false;
   let timeoutGrabacion;
 
-  // Cambio dinámico de colores
-  const paletas = [
-    { primary: '#ff007f', secondary: '#00f0ff', border: '#7f5af0' },
-    { primary: '#7928ca', secondary: '#ff0080', border: '#4facfe' },
-    { primary: '#f77f00', secondary: '#fcbf49', border: '#d62828' },
-    { primary: '#06d6a0', secondary: '#118ab2', border: '#ef476f' }
-  ];
-  let colorIndex = 0;
-  setInterval(() => {
-    colorIndex = (colorIndex + 1) % paletas.length;
-    const p = paletas[colorIndex];
-    document.documentElement.style.setProperty('--primary', p.primary);
-    document.documentElement.style.setProperty('--secondary', p.secondary);
-    document.documentElement.style.setProperty('--border', p.border);
-  }, 4000);
-
   btnGrabar.addEventListener('click', async () => {
     if (!grabando) {
       await iniciarGrabacion();
@@ -173,11 +129,15 @@
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       
-      // Seleccionar el mejor formato compatible
-      const tipos = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'];
-      const mimeCompatible = tipos.find(t => MediaRecorder.isTypeSupported(t)) || '';
+      // Permitir cualquier tipo MIME compatible o dejar que el navegador elija por defecto
+      let options = {};
+      if (MediaRecorder.isTypeSupported('audio/webm')) {
+        options = { mimeType: 'audio/webm' };
+      } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+        options = { mimeType: 'audio/mp4' };
+      }
 
-      mediaRecorder = mimeCompatible ? new MediaRecorder(stream, { mimeType: mimeCompatible }) : new MediaRecorder(stream);
+      mediaRecorder = new MediaRecorder(stream, options);
       audioChunks = [];
 
       mediaRecorder.ondataavailable = e => {
@@ -214,32 +174,45 @@
 
   async function enviarAudio() {
     try {
-      const mimeFinal = mediaRecorder.mimeType || 'audio/webm';
-      const audioBlob = new Blob(audioChunks, { type: mimeFinal });
-      const ext = mimeFinal.includes('mp4') ? 'm4a' : (mimeFinal.includes('ogg') ? 'ogg' : 'webm');
-      const nombreArchivo = `audio_${Date.now()}.${ext}`;
+      const audioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+      const nombreArchivo = `audio_${Date.now()}.webm`;
       const nombreUsuario = inputUsuario.value.trim() || 'ANÓNIMO';
 
-      // 1. Subir archivo al Storage
-      const { error: uploadError } = await db.storage
+      console.log("Subiendo archivo:", nombreArchivo, "Tamaño:", audioBlob.size);
+
+      // 1. Subir al Storage sin restricciones de tipo estricto
+      const { data: uploadData, error: uploadError } = await db.storage
         .from('audios')
-        .upload(nombreArchivo, audioBlob, { contentType: mimeFinal });
+        .upload(nombreArchivo, audioBlob, {
+          cacheControl: '3600',
+          upsert: false
+        });
 
-      if (uploadError) throw new Error('Storage: ' + uploadError.message);
+      if (uploadError) {
+        throw new Error('Storage Error: ' + uploadError.message);
+      }
 
-      // 2. Obtener URL
-      const { data: urlData } = db.storage.from('audios').getPublicUrl(nombreArchivo);
+      // 2. Obtener URL pública
+      const { data: urlData } = db.storage
+        .from('audios')
+        .getPublicUrl(nombreArchivo);
 
-      // 3. Guardar en tabla mensajes
+      if (!urlData || !urlData.publicUrl) {
+        throw new Error('No se pudo generar la URL pública');
+      }
+
+      // 3. Guardar en la tabla mensajes
       const { error: dbError } = await db
         .from('mensajes')
         .insert([{ usuario: nombreUsuario, audio_url: urlData.publicUrl }]);
 
-      if (dbError) throw new Error('Tabla DB: ' + dbError.message);
+      if (dbError) {
+        throw new Error('DB Error: ' + dbError.message);
+      }
 
       estado.textContent = '✨ ¡ENVIADO CON ÉXITO!';
     } catch (err) {
-      console.error(err);
+      console.error("Fallo completo al enviar:", err);
       estado.textContent = '⚠️ ' + err.message;
     } finally {
       btnGrabar.disabled = false;
