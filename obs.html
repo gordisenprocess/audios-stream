@@ -2,64 +2,67 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>Widget OBS Definitivo</title>
+  <title>Widget OBS Retro</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
+    @import url('https://fonts.googleapis.com/css2?family=VT323&family=Space+Grotesk:wght@700&display=swap');
+
     body {
       margin: 0;
       background: transparent;
       overflow: hidden;
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      font-family: 'Space Grotesk', sans-serif;
       display: flex;
       justify-content: center;
       align-items: center;
       height: 100vh;
     }
 
-    /* Botón de activación inicial para desbloquear el audio en OBS */
     #btnActivar {
       position: absolute;
-      bottom: 10px;
-      left: 10px;
-      background: rgba(255, 0, 127, 0.8);
+      bottom: 20px;
+      left: 20px;
+      background: #ff007f;
       color: white;
       border: 2px solid #fff;
-      padding: 8px 15px;
+      padding: 12px 18px;
       border-radius: 8px;
       font-weight: bold;
       cursor: pointer;
-      font-size: 12px;
-      box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+      font-size: 14px;
+      box-shadow: 4px 4px 0px #00f0ff;
       z-index: 999;
     }
 
     #reproductor {
       display: none;
-      background: rgba(18, 18, 22, 0.95);
+      background: #191825;
       color: #ffffff;
-      padding: 18px 25px;
+      padding: 20px 25px;
       border-radius: 16px;
-      border: 2px solid #9146FF;
-      width: 340px;
-      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.7), 0 0 15px rgba(145, 70, 255, 0.4);
+      border: 3px solid #7f5af0;
+      width: 350px;
+      box-shadow: 6px 6px 0px #ff007f;
+      animation: aparecer 0.3s ease-out;
     }
 
     .cabecera {
       display: flex;
       align-items: center;
-      gap: 12px;
-      margin-bottom: 12px;
+      gap: 15px;
+      margin-bottom: 14px;
     }
 
     .icono-onda {
-      background: #9146FF;
-      width: 38px;
-      height: 38px;
-      border-radius: 50%;
+      background: #ff007f;
+      width: 42px;
+      height: 42px;
+      border-radius: 10px;
+      border: 2px solid #fff;
       display: flex;
       justify-content: center;
       align-items: center;
-      font-size: 18px;
+      font-size: 20px;
     }
 
     .info-usuario {
@@ -69,14 +72,14 @@
     }
 
     .etiqueta {
-      font-size: 11px;
-      text-transform: uppercase;
+      font-family: 'VT323', monospace;
+      font-size: 18px;
       letter-spacing: 1px;
-      color: #b3b3b3;
+      color: #00f0ff;
     }
 
     #nombreUsuario {
-      font-size: 18px;
+      font-size: 20px;
       font-weight: bold;
       white-space: nowrap;
       overflow: hidden;
@@ -86,30 +89,35 @@
 
     .barra-fondo {
       width: 100%;
-      height: 6px;
-      background: #2e2e36;
-      border-radius: 4px;
+      height: 10px;
+      background: #0f0e17;
+      border: 2px solid #7f5af0;
+      border-radius: 6px;
       overflow: hidden;
     }
 
     #barraProgreso {
       width: 0%;
       height: 100%;
-      background: linear-gradient(90deg, #9146FF, #00d2ff);
+      background: linear-gradient(90deg, #ff007f, #00f0ff);
       transition: width 0.1s linear;
+    }
+
+    @keyframes aparecer {
+      0% { transform: translateY(20px) scale(0.9); opacity: 0; }
+      100% { transform: translateY(0) scale(1); opacity: 1; }
     }
   </style>
 </head>
 <body>
 
-  <!-- Botón obligatorio para habilitar el motor de audio -->
   <button id="btnActivar">🔊 CLIC AQUÍ PARA ACTIVAR AUDIO</button>
 
   <div id="reproductor">
     <div class="cabecera">
       <div class="icono-onda">🎙️</div>
       <div class="info-usuario">
-        <span class="etiqueta">Nota de voz de</span>
+        <span class="etiqueta">NOTA DE VOZ DE:</span>
         <span id="nombreUsuario">Usuario</span>
       </div>
     </div>
@@ -119,11 +127,8 @@
   </div>
 
 <script>
-  // --- TUS CREDENCIALES DE SUPABASE ---
   const SUPABASE_URL = 'https://imgykwbppdxynbaznhlg.supabase.co';
   const SUPABASE_KEY = 'sb_publishable_n9sInXCIbT5clU4pNKfHtg_EvF29TCb';
-  // ------------------------------------
-
   const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
   const reproductorDiv = document.getElementById('reproductor');
@@ -132,41 +137,62 @@
   const btnActivar = document.getElementById('btnActivar');
 
   let colaAudios = [];
+  let idsProcesados = new Set();
   let reproduciendo = false;
   let audioHabilitado = false;
 
-  // Al hacer clic en el botón de OBS, se desbloquea el motor de audio
+  // Desbloquear motor de audio con interacción real
   btnActivar.addEventListener('click', () => {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    ctx.resume();
     audioHabilitado = true;
-    btnActivar.style.display = 'none'; // Ocultar el botón una vez activado
-    console.log("Audio activado correctamente.");
-    procesarCola();
+    btnActivar.style.display = 'none';
+    revisarMensajesNuevos();
   });
 
-  // Escuchar nuevos mensajes en tiempo real
+  // Método 1: Escucha en tiempo real
   db.channel('canal-audios')
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'mensajes' }, payload => {
-      console.log("Nuevo audio recibido en OBS:", payload.new);
-      colaAudios.push(payload.new);
-      procesarCola();
+      agregarACola(payload.new);
     })
     .subscribe();
 
+  // Método 2: Revisión periódica cada 3 segundos (respaldo infalible)
+  setInterval(revisarMensajesNuevos, 3000);
+
+  async function revisarMensajesNuevos() {
+    if (!audioHabilitado) return;
+    const { data, error } = await db
+      .from('mensajes')
+      .select('*')
+      .order('id', { ascending: true });
+
+    if (!error && data) {
+      data.forEach(msg => agregarACola(msg));
+    }
+  }
+
+  function agregarACola(mensaje) {
+    if (!mensaje || idsProcesados.has(mensaje.id)) return;
+    idsProcesados.add(mensaje.id);
+    colaAudios.push(mensaje);
+    procesarCola();
+  }
+
   async function procesarCola() {
-    // Si el usuario aún no hizo clic en activar el audio en OBS, detenemos aquí
     if (!audioHabilitado || reproduciendo || colaAudios.length === 0) return;
 
     reproduciendo = true;
     const mensajeActual = colaAudios.shift();
 
-    nombreSpan.textContent = mensajeActual.usuario || 'Anónimo';
+    nombreSpan.textContent = mensajeActual.usuario || 'ANÓNIMO';
     barraProgreso.style.width = '0%';
     reproductorDiv.style.display = 'block';
 
     const audio = new Audio(mensajeActual.audio_url);
 
     audio.ontimeupdate = () => {
-      if (audio.duration) {
+      if (audio.duration && !isNaN(audio.duration)) {
         const porcentaje = (audio.currentTime / audio.duration) * 100;
         barraProgreso.style.width = porcentaje + '%';
       }
@@ -174,33 +200,35 @@
 
     audio.onended = () => {
       barraProgreso.style.width = '100%';
-      setTimeout(() => limpiarYContinuar(mensajeActual), 300);
+      setTimeout(() => limpiarYContinuar(mensajeActual), 400);
     };
 
     audio.onerror = (e) => {
-      console.error("Error reproduciendo audio:", e);
+      console.error("Error cargando el audio:", e);
       limpiarYContinuar(mensajeActual);
     };
 
     try {
       await audio.play();
     } catch (err) {
-      console.error("El navegador bloqueó la reproducción:", err);
+      console.error("Bloqueo de reproducción:", err);
       limpiarYContinuar(mensajeActual);
     }
   }
 
   async function limpiarYContinuar(mensaje) {
     try {
+      // Borrar registro de la base de datos para que no vuelva a sonar
+      await db.from('mensajes').delete().eq('id', mensaje.id);
+
+      // Intentar borrar el archivo físico si existe la política DELETE en Storage
       const urlParts = mensaje.audio_url.split('/');
       const nombreArchivo = urlParts[urlParts.length - 1];
-
       if (nombreArchivo) {
         await db.storage.from('audios').remove([nombreArchivo]);
       }
-      await db.from('mensajes').delete().eq('id', mensaje.id);
     } catch (err) {
-      console.error("Error al limpiar:", err);
+      console.error("Error en limpieza:", err);
     }
 
     reproductorDiv.style.display = 'none';
