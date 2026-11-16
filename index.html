@@ -111,8 +111,8 @@
 </head>
 <body>
 
-  <!-- Letrero de control de versión -->
-  <div id="tagVersion">VERSIÓN 1</div>
+  <!-- Letrero de control de versión actualizados a VERSIÓN 2 -->
+  <div id="tagVersion">VERSIÓN 2</div>
 
 <div class="card">
   <h2>🎙️ AUDIO-CAST</h2>
@@ -202,8 +202,8 @@
       const { data: uploadData, error: uploadError } = await db.storage
         .from('audios')
         .upload(nombreArchivo, audioBlob, {
-          cacheControl: '3600',
-          upsert: false
+          contentType: 'audio/webm',
+          upsert: true
         });
 
       if (uploadError) {
