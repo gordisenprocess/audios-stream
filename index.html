@@ -29,6 +29,22 @@
       overflow: hidden;
     }
 
+    /* Indicador de versión flotante para control de caché con F5 */
+    #tagVersion {
+      position: absolute;
+      top: 15px;
+      right: 20px;
+      background: var(--primary);
+      color: white;
+      font-family: 'VT323', monospace;
+      font-size: 22px;
+      padding: 5px 12px;
+      border-radius: 6px;
+      border: 2px solid #fff;
+      box-shadow: 3px 3px 0px var(--secondary);
+      letter-spacing: 1px;
+    }
+
     .card {
       background: var(--card-bg);
       padding: 35px;
@@ -94,6 +110,9 @@
   </style>
 </head>
 <body>
+
+  <!-- Letrero de control de versión -->
+  <div id="tagVersion">VERSIÓN 1</div>
 
 <div class="card">
   <h2>🎙️ AUDIO-CAST</h2>
@@ -179,9 +198,9 @@
 
       estado.textContent = 'SUBIENDO AL STORAGE...';
 
-      // 1. Subir al Storage de Supabase
+      // 1. Subir al Storage de Supabase usando el bucket 'AUDIOS'
       const { data: uploadData, error: uploadError } = await db.storage
-        .from('audios')
+        .from('AUDIOS')
         .upload(nombreArchivo, audioBlob, {
           cacheControl: '3600',
           upsert: false
@@ -195,7 +214,7 @@
 
       // 2. Obtener URL pública
       const { data: urlData } = db.storage
-        .from('audios')
+        .from('AUDIOS')
         .getPublicUrl(nombreArchivo);
 
       if (!urlData || !urlData.publicUrl) {
