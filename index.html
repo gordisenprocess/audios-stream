@@ -29,7 +29,7 @@
       overflow: hidden;
     }
 
-    /* Indicador de versión flotante para control de caché con F5 */
+    /* Indicador de versión 3 para control de caché con F5 */
     #tagVersion {
       position: absolute;
       top: 15px;
@@ -88,6 +88,7 @@
       background: var(--primary);
       color: white;
       box-shadow: 4px 4px 0px #fff;
+      margin-top: 8px;
     }
 
     button.grabando {
@@ -95,8 +96,23 @@
       animation: pulseBlink 0.8s infinite alternate;
     }
 
+    button.secundario {
+      background: #332752;
+      box-shadow: 4px 4px 0px var(--secondary);
+    }
+
+    audio {
+      width: 100%;
+      margin-bottom: 10px;
+      border-radius: 6px;
+    }
+
+    .oculto {
+      display: none !important;
+    }
+
     #estado {
-      margin-top: 20px;
+      margin-top: 15px;
       color: #ffcc00;
       font-family: 'VT323', monospace;
       font-size: 18px;
@@ -111,13 +127,25 @@
 </head>
 <body>
 
-  <!-- Letrero de control de versión actualizados a VERSIÓN 2 -->
-  <div id="tagVersion">VERSIÓN 2</div>
+  <!-- Indicador de versión 3 -->
+  <div id="tagVersion">VERSIÓN 3</div>
 
 <div class="card">
   <h2>🎙️ AUDIO-CAST</h2>
   <input type="text" id="usuario" placeholder="Tu nombre / Tag" maxlength="20">
-  <button id="btnGrabar">TOCAR PARA GRABAR</button>
+  
+  <!-- Controles principales de grabación -->
+  <div id="seccionGrabar">
+    <button id="btnGrabar">TOCAR PARA GRABAR</button>
+  </div>
+
+  <!-- Controles de previsualización y confirmación -->
+  <div id="seccionPreview" class="oculto">
+    <audio id="audioPreview" controls></audio>
+    <button id="btnEnviar">🚀 ENVIAR AL STREAM</button>
+    <button id="btnDescartar" class="secundario">❌ DESCARTAR / REGRABAR</button>
+  </div>
+
   <p id="estado">LISTO (MÁX 10S)</p>
 </div>
 
@@ -127,16 +155,23 @@
   const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
   const btnGrabar = document.getElementById('btnGrabar');
+  const btnEnviar = document.getElementById('btnEnviar');
+  const btnDescartar = document.getElementById('btnDescartar');
   const estado = document.getElementById('estado');
   const inputUsuario = document.getElementById('usuario');
+  const seccionGrabar = document.getElementById('seccionGrabar');
+  const seccionPreview = document.getElementById('seccionPreview');
+  const audioPreview = document.getElementById('audioPreview');
 
   let mediaRecorder;
   let audioChunks = [];
-  let grabando = false;
+  let audioBlob = null;
   let timeoutGrabacion;
+  let intervaloCuentaRegresiva;
+  let segundosRestantes = 10;
 
   btnGrabar.addEventListener('click', async () => {
-    if (!grabando) {
+    if (!mediaRecorder || mediaRecorder.state === 'inactive') {
       await iniciarGrabacion();
     } else {
       detenerGrabacion();
@@ -157,17 +192,38 @@
         }
       };
 
-      mediaRecorder.onstop = enviarAudio;
+      mediaRecorder.onstop = () => {
+        audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+        const audioUrl = URL.createObjectURL(audioBlob);
+        audioPreview.src = audioUrl;
+
+        // Cambiar vista a la previsualización
+        seccionGrabar.classList.add('oculto');
+        seccionPreview.classList.remove('oculto');
+        estado.textContent = 'ESCUCHA TU AUDIO ANTES DE ENVIAR';
+      };
 
       mediaRecorder.start();
-      grabando = true;
-      btnGrabar.textContent = '⏹️ DETENER Y ENVIAR';
+      btnGrabar.textContent = '⏹️ DETENER GRABACIÓN';
       btnGrabar.classList.add('grabando');
-      estado.textContent = '🔴 GRABANDO...';
+      
+      // Temporizador visual de 10 segundos
+      segundosRestantes = 10;
+      estado.textContent = `🔴 GRABANDO... (${segundosRestantes}s)`;
+
+      intervaloCuentaRegresiva = setInterval(() => {
+        segundosRestantes--;
+        if (segundosRestantes > 0) {
+          estado.textContent = `🔴 GRABANDO... (${segundosRestantes}s)`;
+        }
+      }, 1000);
 
       timeoutGrabacion = setTimeout(() => {
-        if (grabando) detenerGrabacion();
+        if (mediaRecorder && mediaRecorder.state === 'recording') {
+          detenerGrabacion();
+        }
       }, 10000);
+
     } catch (err) {
       estado.textContent = '⚠️ ERROR MIC: ' + err.message;
     }
@@ -175,40 +231,45 @@
 
   function detenerGrabacion() {
     clearTimeout(timeoutGrabacion);
+    clearInterval(intervaloCuentaRegresiva);
     if (mediaRecorder && mediaRecorder.state !== 'inactive') {
       mediaRecorder.stop();
       mediaRecorder.stream.getTracks().forEach(t => t.stop());
     }
-    grabando = false;
-    btnGrabar.textContent = '⏳ SUBIENDO...';
+    btnGrabar.textContent = 'TOCAR PARA GRABAR';
     btnGrabar.classList.remove('grabando');
-    btnGrabar.disabled = true;
-    estado.textContent = 'PROCESANDO AUDIO...';
   }
 
-  async function enviarAudio() {
-    try {
-      if (audioChunks.length === 0) {
-        throw new Error("No se capturó ningún dato de audio.");
-      }
+  // Botón para descartar y grabar de nuevo
+  btnDescartar.addEventListener('click', () => {
+    audioBlob = null;
+    audioPreview.src = '';
+    seccionPreview.classList.add('oculto');
+    seccionGrabar.classList.remove('oculto');
+    estado.textContent = 'LISTO (MÁX 10S)';
+  });
 
-      const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+  // Botón para confirmar y enviar a Supabase
+  btnEnviar.addEventListener('click', async () => {
+    if (!audioBlob) return;
+
+    btnEnviar.disabled = true;
+    btnDescartar.disabled = true;
+    estado.textContent = 'SUBIENDO AL STORAGE...';
+
+    try {
       const nombreArchivo = `audio_${Date.now()}.webm`;
       const nombreUsuario = inputUsuario.value.trim() || 'ANÓNIMO';
 
-      estado.textContent = 'SUBIENDO AL STORAGE...';
-
-      // 1. Subir al Storage de Supabase usando el bucket 'audios'
-      const { data: uploadData, error: uploadError } = await db.storage
+      // 1. Subir al Storage
+      const { error: uploadError } = await db.storage
         .from('audios')
         .upload(nombreArchivo, audioBlob, {
           contentType: 'audio/webm',
           upsert: true
         });
 
-      if (uploadError) {
-        throw new Error('Storage: ' + uploadError.message);
-      }
+      if (uploadError) throw new Error('Storage: ' + uploadError.message);
 
       estado.textContent = 'OBTENIENDO URL...';
 
@@ -217,30 +278,35 @@
         .from('audios')
         .getPublicUrl(nombreArchivo);
 
-      if (!urlData || !urlData.publicUrl) {
-        throw new Error('No se pudo generar la URL pública');
-      }
+      if (!urlData || !urlData.publicUrl) throw new Error('No se pudo generar la URL');
 
       estado.textContent = 'GUARDANDO EN DB...';
 
-      // 3. Guardar en la tabla mensajes
+      // 3. Guardar en tabla mensajes
       const { error: dbError } = await db
         .from('mensajes')
         .insert([{ usuario: nombreUsuario, audio_url: urlData.publicUrl }]);
 
-      if (dbError) {
-        throw new Error('DB: ' + dbError.message);
-      }
+      if (dbError) throw new Error('DB: ' + dbError.message);
 
       estado.textContent = '✨ ¡ENVIADO CON ÉXITO!';
+
+      setTimeout(() => {
+        seccionPreview.classList.add('oculto');
+        seccionGrabar.classList.remove('oculto');
+        btnEnviar.disabled = false;
+        btnDescartar.disabled = false;
+        audioBlob = null;
+        estado.textContent = 'LISTO (MÁX 10S)';
+      }, 2500);
+
     } catch (err) {
-      console.error("Fallo:", err);
+      console.error(err);
       estado.textContent = '⚠️ ' + err.message;
-    } finally {
-      btnGrabar.disabled = false;
-      btnGrabar.textContent = 'TOCAR PARA GRABAR';
+      btnEnviar.disabled = false;
+      btnDescartar.disabled = false;
     }
-  }
+  });
 </script>
 </body>
 </html>
