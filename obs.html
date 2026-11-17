@@ -2,74 +2,142 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>Widget OBS Universal</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AUDIO-CAST // OBS WIDGET</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
+    @import url('https://fonts.googleapis.com/css2?family=VT323&family=Space+Grotesk:wght@500;700&display=swap');
+
+    :root {
+      --bg-color: transparent;
+      --primary: #ff007f;
+      --secondary: #00f0ff;
+      --text: #fffffe;
+      --card-bg: rgba(25, 24, 37, 0.9);
+      --border: #7f5af0;
+    }
+
     body {
+      font-family: 'Space Grotesk', sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text);
       margin: 0;
-      background: transparent;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      justify-content: flex-end;
+      height: 100vh;
       overflow: hidden;
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     }
 
-    #estadoObs {
-      position: absolute;
-      top: 10px;
-      left: 10px;
-      background: rgba(0, 0, 0, 0.85);
-      color: #00ffcc;
-      padding: 8px 12px;
-      border-radius: 6px;
-      font-size: 12px;
-      font-weight: bold;
-      border: 1px solid #00ffcc;
-      z-index: 1000;
+    /* Tarjeta de notificación estilo arcade retro */
+    .alerta-card {
+      background: var(--card-bg);
+      border: 3px solid var(--border);
+      border-radius: 16px;
+      padding: 18px 25px;
+      box-shadow: 5px 5px 0px var(--primary);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-width: 280px;
+      max-width: 400px;
+      transform: translateY(50px);
+      opacity: 0;
+      transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
     }
 
-    #btnActivar {
-      position: absolute;
-      bottom: 20px;
+    .alerta-card.visible {
+      transform: translateY(0);
+      opacity: 1;
+    }
+
+    .header-audio {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .icono-mic {
+      font-size: 24px;
+      animation: bounceMic 0.6s infinite alternate;
+    }
+
+    .usuario-tag {
+      font-family: 'VT323', monospace;
+      font-size: 30px;
+      color: var(--secondary);
+      letter-spacing: 1px;
+      text-shadow: 2px 2px var(--primary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .barra-progreso-container {
+      width: 100%;
+      height: 6px;
+      background: #0f0e17;
+      border-radius: 3px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+
+    .barra-progreso {
+      width: 100%;
+      height: 100%;
+      background: var(--primary);
+      transform-origin: left;
+      transform: scaleX(1);
+    }
+
+    .barra-progreso.animar {
+      transition: transform linear;
+    }
+
+    /* Botón de activación inicial para OBS */
+    #btnActivarAudio {
+      position: fixed;
+      top: 20px;
       left: 20px;
-      background: #ff007f;
+      background: var(--primary);
       color: white;
-      border: 2px solid #fff;
-      padding: 12px 18px;
+      font-family: 'VT323', monospace;
+      font-size: 24px;
+      padding: 12px 20px;
+      border: 3px solid #fff;
       border-radius: 8px;
-      font-weight: bold;
       cursor: pointer;
-      font-size: 14px;
-      box-shadow: 4px 4px 0px #00f0ff;
+      box-shadow: 4px 4px 0px var(--secondary);
       z-index: 999;
+      text-shadow: 2px 2px #000;
     }
 
-    #reproductor {
+    #btnActivarAudio.oculto {
       display: none;
-      position: absolute;
-      bottom: 60px;
-      left: 20px;
-      background: #191825;
-      color: #ffffff;
-      padding: 15px 20px;
-      border-radius: 12px;
-      border: 3px solid #7f5af0;
-      width: 320px;
-      box-shadow: 4px 4px 0px #ff007f;
     }
 
-    .info {
-      font-size: 16px;
-      font-weight: bold;
-      color: #00f0ff;
+    @keyframes bounceMic {
+      0% { transform: translateY(0); }
+      100% { transform: translateY(-4px); }
     }
   </style>
 </head>
 <body>
 
-  <div id="estadoObs">Estado: Esperando clic de activación</div>
-  <button id="btnActivar">🔊 CLIC AQUÍ PARA ACTIVAR AUDIO</button>
+  <!-- Botón obligatorio para destrabar el motor de audio en OBS -->
+  <button id="btnActivarAudio">🔊 CLIC AQUÍ PARA ACTIVAR AUDIO EN OBS</button>
 
-  <div id="reproductor">
-    <div id="nombreUsuario" class="info">🎙️ Reproduciendo nota de voz...</div>
+  <!-- Widget visual de alerta -->
+  <div id="alertaCard" class="alerta-card">
+    <div class="header-audio">
+      <span class="icono-mic">🎙️</span>
+      <span id="lblUsuario" class="usuario-tag">ANÓNIMO</span>
+    </div>
+    <div class="barra-progreso-container">
+      <div id="barraProgreso" class="barra-progreso"></div>
+    </div>
   </div>
 
 <script>
@@ -77,119 +145,114 @@
   const SUPABASE_KEY = 'sb_publishable_n9sInXCIbT5clU4pNKfHtg_EvF29TCb';
   const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-  const estadoObs = document.getElementById('estadoObs');
-  const btnActivar = document.getElementById('btnActivar');
-  const reproductorDiv = document.getElementById('reproductor');
-  const nombreSpan = document.getElementById('nombreUsuario');
+  const btnActivar = document.getElementById('btnActivarAudio');
+  const alertaCard = document.getElementById('alertaCard');
+  const lblUsuario = document.getElementById('lblUsuario');
+  const barraProgreso = document.getElementById('barraProgreso');
 
-  let colaAudios = [];
-  let idsProcesados = new Set();
+  let audioContext;
+  let audioFila = [];
   let reproduciendo = false;
-  let audioHabilitado = false;
-  let audioCtx = null;
 
-  // Inicializar contexto de audio con interacción en OBS ("Interactuar")
+  // Activar contexto de audio por política de navegadores / OBS
   btnActivar.addEventListener('click', () => {
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    audioCtx.resume();
-    audioHabilitado = true;
-    btnActivar.style.display = 'none';
-    estadoObs.textContent = 'Estado: ¡Audio activado! Escuchando...';
-    revisarMensajesNuevos();
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioContext.state === 'suspended') {
+      audioContext.resume();
+    }
+    btnActivar.classList.add('oculto');
+    console.log("Audio activado correctamente para OBS");
+    iniciarSuscripcion();
   });
 
-  // Escucha en tiempo real
-  db.channel('canal-audios-obs')
-    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'mensajes' }, payload => {
-      estadoObs.textContent = 'Estado: ¡Nuevo audio recibido!';
-      agregarACola(payload.new);
-    })
-    .subscribe();
+  function iniciarSuscripcion() {
+    // Escuchar en tiempo real la tabla mensajes
+    db.channel('public:mensajes')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'mensajes' }, payload => {
+        const nuevoMensaje = payload.new;
+        audioFila.push(nuevoMensaje);
+        procesarCola();
+      })
+      .subscribe();
 
-  // Respaldo cada 3 segundos
-  setInterval(revisarMensajesNuevos, 3000);
-
-  async function revisarMensajesNuevos() {
-    if (!audioHabilitado) return;
-    const { data, error } = await db
-      .from('mensajes')
-      .select('*')
-      .order('id', { ascending: true });
-
-    if (!error && data) {
-      data.forEach(msg => agregarACola(msg));
-    }
+    // Consulta de respaldo (Polling por si falla el realtime)
+    setInterval(verificarPendientes, 4000);
   }
 
-  function agregarACola(mensaje) {
-    if (!mensaje || idsProcesados.has(mensaje.id)) return;
-    idsProcesados.add(mensaje.id);
-    colaAudios.push(mensaje);
-    procesarCola();
+  async function verificarPendientes() {
+    if (reproduciendo) return;
+    try {
+      const { data, error } = await db
+        .from('mensajes')
+        .select('*')
+        .order('id', { ascending: true })
+        .limit(1);
+
+      if (data && data.length > 0) {
+        const mensaje = data[0];
+        // Evitar duplicados si ya está en cola
+        if (!audioFila.some(m => m.id === mensaje.id)) {
+          audioFila.push(mensaje);
+          procesarCola();
+        }
+      }
+    } catch (err) {
+      console.error("Error en polling:", err);
+    }
   }
 
   async function procesarCola() {
-    if (!audioHabilitado || reproduciendo || colaAudios.length === 0) return;
+    if (reproduciendo || audioFila.length === 0 || !audioContext) return;
 
     reproduciendo = true;
-    const mensajeActual = colaAudios.shift();
-
-    nombreSpan.textContent = `🎙️ ${mensajeActual.usuario || 'ANÓNIMO'}`;
-    reproductorDiv.style.display = 'block';
-    estadoObs.textContent = `Estado: Descargando audio de ${mensajeActual.usuario}...`;
+    const mensajeActual = audioFila.shift();
 
     try {
-      // 1. Descargar el archivo binario directamente desde Supabase Storage
+      // 1. Descargar el archivo de audio con Web Audio API
       const response = await fetch(mensajeActual.audio_url);
-      if (!response.ok) throw new Error("No se pudo descargar el archivo de audio");
-      
       const arrayBuffer = await response.arrayBuffer();
+      const decodedBuffer = await audioContext.decodeAudioData(arrayBuffer);
 
-      estadoObs.textContent = `Estado: Decodificando audio...`;
+      const duracionSegundos = decodedBuffer.duration || 3;
 
-      // 2. Decodificar el buffer de audio de forma universal (soporta webm, m4a, ogg, wav)
-      const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+      // 2. Mostrar la tarjeta con el nombre del usuario
+      lblUsuario.textContent = mensajeActual.usuario || 'ANÓNIMO';
+      alertaCard.classList.add('visible');
 
-      estadoObs.textContent = `Estado: Reproduciendo...`;
+      // Animar barra de progreso basada en la duración exacta del audio
+      barraProgreso.style.transition = 'none';
+      barraProgreso.style.transform = 'scaleX(1)';
+      void barraProgreso.offsetWidth; // Trigger reflow
+      barraProgreso.style.transition = `transform ${duracionSegundos}s linear`;
+      barraProgreso.style.transform = 'scaleX(0)';
 
-      // 3. Reproducir usando Web Audio API
-      const source = audioCtx.createBufferSource();
-      source.buffer = audioBuffer;
-      source.connect(audioCtx.destination);
-      
-      source.onended = () => {
-        limpiarYContinuar(mensajeActual);
-      };
-
+      // 3. Reproducir el audio
+      const source = audioContext.createBufferSource();
+      source.buffer = decodedBuffer;
+      source.connect(audioContext.destination);
       source.start(0);
 
+      // 4. Esperar a que termine de sonar
+      await new Promise(resolve => setTimeout(resolve, duracionSegundos * 1000));
+
+      // 5. Ocultar tarjeta
+      alertaCard.classList.remove('visible');
+      await new Promise(resolve => setTimeout(resolve, 400)); // Esperar transición visual
+
+      // 6. Borrar de la base de datos para limpiar y no repetir
+      await db.from('mensajes').delete().eq('id', mensajeActual.id);
+
     } catch (err) {
-      console.error("Error procesando audio:", err);
-      estadoObs.textContent = 'Error: ' + err.message;
-      // Si falla la decodificación, limpiamos igual para que no se quede bloqueado
-      limpiarYContinuar(mensajeActual);
-    }
-  }
-
-  async function limpiarYContinuar(mensaje) {
-    try {
-      // Borrar de la base de datos
-      await db.from('mensajes').delete().eq('id', mensaje.id);
-
-      // Borrar del Storage
-      const urlParts = mensaje.audio_url.split('/');
-      const nombreArchivo = urlParts[urlParts.length - 1];
-      if (nombreArchivo) {
-        await db.storage.from('audios').remove([nombreArchivo]);
+      console.error("Error reproduciendo audio:", err);
+      // Intentar limpiar el mensaje fallido para no trabar la cola
+      await db.from('mensajes').delete().eq('id', mensajeActual.id).catch(() => {});
+    } finally {
+      reproduciendo = false;
+      // Continuar con el siguiente si hay más en la cola
+      if (audioFila.length > 0) {
+        procesarCola();
       }
-    } catch (err) {
-      console.error(err);
     }
-
-    reproductorDiv.style.display = 'none';
-    reproduciendo = false;
-    estadoObs.textContent = 'Estado: Escuchando mensajes...';
-    procesarCola();
   }
 </script>
 </body>
